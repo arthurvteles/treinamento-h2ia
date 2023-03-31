@@ -1,0 +1,179 @@
+import numpy as np
+import pandas as pd
+from sklearn.model_selection import train_test_split
+
+# lendo o dataset com o pandas
+# DataSet = pd.read_csv("agaricus-lepiota.csv", index_col=0)
+read_file = pd.read_csv('agaricus-lepiota.data')
+read_file.to_csv('mushrooms.csv', index=None)
+train, test = train_test_split(read_file, test_size=0.2)
+
+# nomes das colunas
+features = read_file.columns.tolist()
+# nome da coluna que queremos prever
+label = 'eatable'
+# valores que a label pode assumir
+label_values = ['p', 'e']
+
+# calcula toda entropia do dataset
+
+
+def total_entropy(data, label, label_values):
+    # definimos o tamanho do dataset
+    size = data.shape[0]
+    entropy = 0
+
+    for lv in label_values:
+        total_lv = data[data[label] == lv].shape[0]
+        # calculamos a entropia da coluna com o valor lv
+        entropy_class = - (total_lv/size) * np.log2(total_lv/size)
+        entropy += entropy_class
+
+    return entropy
+
+# calculamos a entropia de cada coluna do dataset
+
+
+def entropy(feature_data, label, label_values):
+    # definimos o tamanho do dataset
+    size = feature_data.shape[0]
+    entropy = 0
+
+    for lv in label_values:
+        total_lv = feature_data[feature_data[label] == lv].shape[0]
+        entropy_class = 0
+
+        if total_lv != 0:
+            propability_class = total_lv/size
+            entropy_class = - propability_class * np.log(propability_class)
+
+        entropy += entropy_class
+
+    return entropy
+
+# agora vamos calcular o ganho de informação de cada classe que analisamos
+
+
+def info_gain(feature_name, data, label, label_values):
+    # le os possiveis valores da coluna
+    values_feature = data[feature_name].unique()
+    size = data.shape[0]
+    feature_info = 0.0
+
+    for vf in values_feature:
+        # filtra o dataset
+        filtered_data = data[data[feature_name] == vf]
+        filtered_data_size = filtered_data.shape[0]
+        filtered_data_entropy = entropy(filtered_data, label, label_values)
+        filtered_data_probability = filtered_data_size / size
+        feature_info += filtered_data_probability * filtered_data_entropy
+
+    return total_entropy(data, label, label_values) - feature_info
+
+# Encontrar a informação mais valiosa
+
+
+def find_most_informative_feature(data, label, label_values):
+    # primeiro removemos a label
+    feature_list = data.columns.drop(label)
+
+    max_info_gain = -1
+    max_info_feature = None
+
+    for feature in feature_list:
+        feature_gain = info_gain(feature, data, label, label_values)
+        if max_info_gain < feature_gain:
+            max_info_gain = feature_gain
+            max_info_feature = feature
+
+    return max_info_feature
+
+
+def generate_subtree(feature_name, data, label, label_values):
+    feature_name_value_dict = data[feature_name].value_counts(sort=False)
+    tree = {}
+
+    for feature_value, count in feature_name_value_dict.items():
+        feature_value_data = data[data[feature_name] == feature_value]
+
+        pure_class = False
+
+        # Quantidadde de valores e,p que cada feature-resposta tem
+        for lf in label_values:
+            class_count = feature_value_data[feature_value_data[label]
+                                             == lf].shape[0]
+
+            # se for pure_class
+            if class_count == count:
+                tree[feature_value] = lf
+                data = data[data[feature_name] != lf]
+                pure_class = True
+
+            if not pure_class:
+                tree[feature_value] = "*"
+
+    return tree, data
+
+
+def make_tree(root, prev_feature_value, data, label, label_values):
+    if data.shape[0] != 0:
+        max_info_feature = find_most_informative_feature(
+            data, label, label_values)
+        tree, data = generate_subtree(
+            max_info_feature, data, label, label_values)
+        next_root = None
+
+        if prev_feature_value is not None:
+            root[prev_feature_value] = dict()
+            root[prev_feature_value][max_info_feature] = tree
+            next_root = root[prev_feature_value][max_info_feature]
+        else:
+            root[max_info_feature] = tree
+            next_root = root[max_info_feature]
+        for node, branch in list(next_root.items()):
+            # se for expandido
+            if branch == "*":
+                feature_value_data = data[data[max_info_feature] == node]
+                make_tree(next_root, node, feature_value_data, label,
+                          label_values)
+
+
+def id3(data, label):
+    train_data = data.copy()  # getting a copy of the dataset
+    tree = {}  # tree which will be updated
+    make_tree(tree, None, train_data, label, label_values)
+    return tree
+
+
+tree = id3(train, 'eatable')
+
+
+def predict(tree, instance):
+    # se o no é uma folha
+    if not isinstance(tree, dict):
+        return tree
+    else:
+        root_node = next(iter(tree))
+        feature_value = instance[root_node]
+        if feature_value in tree[root_node]:
+            return predict(tree[root_node][feature_value], instance)
+        else:
+            return None
+
+
+def evaluate(tree, data, label):
+    correct_preditct = 0
+    wrong_preditct = 0
+    for index, row in data.iterrows():
+        result = predict(tree, row)
+        if result == row[label]:
+            correct_preditct += 1
+        else:
+            wrong_preditct += 1
+    accuracy = correct_preditct / \
+        (correct_preditct + wrong_preditct)
+    return accuracy
+
+
+accuracy = evaluate(tree, test, 'eatable')
+print(accuracy)
